@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from typing import Dict, List, Optional, Set
 
 from config import (
+    GRACE_PERIOD_DAYS,
     RAW_PROXIES_FILE,
     VALID_PROXIES_FILE,
     TOP_PROXIES_FILE,
@@ -78,20 +79,25 @@ def load_top_proxies() -> List[Dict]:
 
 def merge_proxy_records(old: List[Dict], new: List[Dict],
                         keep_old: bool = MERGE_KEEP_OLD) -> List[Dict]:
-    """
-    Объединяет старый и новый списки прокси БЕЗ дублирования.
+    """Объединяет старый и новый списки прокси БЕЗ дублирования.
 
-    Правила:
-      * ключ записи — нормализованная строка 'proxy';
-      * если прокси есть и там, и там — берём новые измерения, но сохраняем
-        гео/анонимность/историю из старой записи (они не перезапрашиваются
-        при каждой проверке и не должны теряться);
-      * записи только из старого списка сохраняются (если keep_old),
-        помечаются как не проверенные в этом проходе, и тянутся в конец;
-      * сортировка: живые — по задержке, архивные — в конце.
+    Ключевая идея: прокси, который НЕ попал в новый результат, не считается
+    мёртвым. Источники постоянно ротируются, и адрес, который работал
+    вчера, может просто отсутствовать в сегодняшней выдаче. Если считать
+    отсутствие в новом списке смертью, каждый прогон стирал бы часть
+    предыдущего результата — и список только уменьшался бы.
+
+    Поэтому:
+      * проверенные в этом прогоне — alive по факту проверки;
+      * непроверенные, но недавно работавшие — остаются alive;
+      * давно не работавшие — alive=False, но остаются в базе и могут
+        вернуться, если снова заработают.
     """
     merged: Dict[str, Dict] = {}
     now = time_now()
+    # Граница «ещё считаем живым»: прокси, который работал недавно, но не
+    # попал в текущую выдачу источников, остаётся в списке.
+    grace_cutoff = now - GRACE_PERIOD_DAYS * 86400
 
     for rec in old or []:
         key = _record_key(rec)
@@ -123,6 +129,7 @@ def merge_proxy_records(old: List[Dict], new: List[Dict],
             combined['last_seen'] = now
             combined['alive'] = True
             combined['checks'] = int(prev.get('checks', 0)) + 1
+            combined['verified_at'] = now
             merged[key] = combined
         else:
             added += 1
@@ -131,25 +138,39 @@ def merge_proxy_records(old: List[Dict], new: List[Dict],
             fresh['last_seen'] = now
             fresh['alive'] = True
             fresh['checks'] = 1
+            fresh['verified_at'] = now
             merged[key] = fresh
 
     kept_old = 0
-    if keep_old:
-        for key, rec in merged.items():
-            if key in fresh_keys:
-                continue
-            rec['alive'] = False
-            rec['last_checked'] = rec.get('last_checked') or rec.get('checked_at')
+    dropped = 0
+    for key, rec in merged.items():
+        if key in fresh_keys:
+            continue
+        # Различаем два случая:
+        #   * прокси раньше работал, но в ЭТОМ прогоне не проверялся —
+        #     источник просто не выдал его. Такие держим живыми, если
+        #     прошло меньше GRACE_PERIOD_DAYS с прошлого успеха;
+        #   * прокси уже был помечен как нерабочий (verified_at старее
+        #     последней проверки) — в архив.
+        verified_at = rec.get('verified_at') or 0
+        last_ok = rec.get('last_seen') or rec.get('checked_at') or 0
+        if last_ok >= grace_cutoff and last_ok >= verified_at:
+            rec['alive'] = True
             kept_old += 1
-    else:
+        else:
+            rec['alive'] = False
+            dropped += 1
+
+    if not keep_old:
         merged = {k: v for k, v in merged.items() if k in fresh_keys}
 
     result = list(merged.values())
     result.sort(key=_sort_key)
 
-    if added or updated or kept_old:
-        print(f"[Merge] +{added} новых, ~{updated} обновлено, "
-              f"{kept_old} сохранено из прошлых (без дублей: {len(result)})")
+    if added or updated or kept_old or dropped:
+        print(f"[Merge] +{added} новых, ~{updated} подтверждено, "
+              f"{kept_old} сохранено без проверки, {dropped} в архив "
+              f"(всего без дублей: {len(result)})")
     return result
 
 

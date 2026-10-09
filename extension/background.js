@@ -1308,16 +1308,30 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         case 'import': {
           const data = msg.data;
           let entries = [];
+          let parsedFrom = '';
           if (typeof data === 'string') {
             entries = toCompactEntries(parseProxyText(data), {});
+            parsedFrom = 'текст';
           } else if (Array.isArray(data)) {
             entries = sanitizeEntries(data);
+            parsedFrom = 'массив';
           } else if (data && Array.isArray(data.proxies)) {
             entries = sanitizeEntries(data.proxies);
+            parsedFrom = 'объект с полем proxies';
+          } else if (data && typeof data === 'object') {
+            // Поддержка полного формата анализатора: ключ не proxies,
+            // а сам список лежит в другом поле.
+            entries = sanitizeEntries(Object.values(data).find(Array.isArray) || []);
+            parsedFrom = 'объект';
           }
           entries = sanitizeEntries(entries);
           if (entries.length === 0) {
-            sendResponse({ ok: false, error: 'В файле не найдено валидных прокси' });
+            log('Импорт: не найдено валидных прокси');
+            sendResponse({
+              ok: false,
+              error: 'В файле не найдено валидных прокси. Ожидается список вида '
+                + 'ip:port, по одному в строке, либо JSON {proxies:[{p:"http://…"}]}'
+            });
             break;
           }
           await storageSet({
@@ -1325,8 +1339,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             [STORAGE_KEYS.LAST_UPDATE]: new Date().toISOString(),
             [STORAGE_KEYS.LIST_SOURCE]: 'import'
           });
-          log(`Импортировано ${entries.length} прокси`);
-          sendResponse({ ok: true, count: entries.length });
+          log(`Импортировано ${entries.length} прокси (${parsedFrom})`);
+          sendResponse({ ok: true, count: entries.length, parsedFrom });
           break;
         }
 

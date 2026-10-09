@@ -108,6 +108,18 @@ function showError(message) {
   }, 4000);
 }
 
+/** Короткое подтверждение успеха — чтобы действие не выглядело «ничего не сделал». */
+function showNotice(message, ok) {
+  const sub = document.getElementById('statusSub');
+  sub.textContent = message;
+  sub.style.color = ok ? '#22c55e' : '#f87171';
+  clearTimeout(errorTimer);
+  errorTimer = setTimeout(() => {
+    sub.style.color = '';
+    loadState();
+  }, 4000);
+}
+
 // ============ ГЛАВНАЯ ОТРИСОВКА ============
 function render() {
   const indicator = document.getElementById('statusIndicator');
@@ -510,6 +522,8 @@ function handleImport(event) {
     const resp = await sendMessage({ action: 'import', data: payload });
     if (resp.ok) {
       await loadState();
+      // Раньше импорт проходил молча — было непонятно, сработал он или нет.
+      showNotice(`✓ Импортировано прокси: ${resp.count}`, true);
     } else {
       showError(resp.error || 'Ошибка импорта');
     }

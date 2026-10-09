@@ -176,11 +176,21 @@ async def _check_with_session(session: aiohttp.ClientSession, proxy: str,
                 return None
 
             # Стабильность: несколько запросов подряд через один и тот же IP.
+            #
+            # Проверка стабильности идёт В ТОМ ЖЕ бюджете, что и первый
+            # запрос. Раньше каждая проверка получала полный таймаут
+            # сверху, и живой нестабильный прокси занимал 20+ секунд —
+            # при пуле в сотни тысяч адресов это десятки минут впустую.
             if STABILITY_CHECKS > 1:
                 stable = True
                 for _ in range(STABILITY_CHECKS - 1):
+                    left = deadline - time.perf_counter()
+                    # Не хватает времени даже на паузу — не тратим её.
+                    if left <= STABILITY_DELAY + 0.5:
+                        break
                     await asyncio.sleep(STABILITY_DELAY)
-                    ok2, data2, exc2 = await _fetch_json(session, url, proxy, timeout)
+                    ok2, data2, exc2 = await _fetch_json(
+                        session, url, proxy, min(left, timeout))
                     if not ok2:
                         stable = False
                         first_error = first_error or exc2

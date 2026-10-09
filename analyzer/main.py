@@ -20,6 +20,7 @@ from config import (
     MERGE_KEEP_OLD,
 )
 from geo import enrich_proxies_with_geo, flush_geo_cache
+from netcheck import detect as detect_connection
 from scraper import load_manual_proxies, scrape_all_sources
 from storage import (
     export_for_extension,
@@ -166,9 +167,35 @@ def persist(results, old=None):
     return merged, alive
 
 
+async def warn_if_via_proxy():
+    """
+    Предупреждает, если трафик идёт через прокси или VPN.
+
+    Проверка прокси идёт ОТ ТВОЕГО адреса. При запуске через прокси
+    отбираются серверы, доступные из этого прокси, а не из твоей сети:
+    близкие (европейские) проходят по скорости, дальние отсеиваются
+    по таймауту. Список получается смещённым.
+
+    Если задача «с России на зарубежные», анализатор надо запускать
+    напрямую, без прокси.
+    """
+    info = await detect_connection()
+    if not info:
+        return
+    if not info.get('tunnelled'):
+        return
+    print(f"{Fore.YELLOW}[!] Похоже, трафик идёт через прокси/VPN: "
+          f"{info.get('org') or '?'} ({info.get('country_code') or '?'}){Style.RESET_ALL}")
+    print(f"    Проверка идёт ОТ ЭТОГО адреса, поэтому в список попадут")
+    print(f"    серверы, доступные из него. Для задачи «с России на зарубежные»")
+    print(f"    отключи прокси и запусти анализатор напрямую.")
+    print()
+
+
 async def run_full_parse():
     """Парсинг всех источников + проверка + сохранение + экспорт в расширение."""
     print(f"\n{Fore.CYAN}[*] Полный парсинг всех источников...{Style.RESET_ALL}")
+    await warn_if_via_proxy()
     print(f"\n{Fore.YELLOW}[Фаза 1/4] Парсинг:{Style.RESET_ALL}")
     scraped = await scrape_all_sources()
     manual = load_manual_proxies()
