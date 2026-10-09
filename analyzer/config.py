@@ -42,14 +42,21 @@ PROXY_SOURCES = [
         "protocol": "http",
     },
     {
-        "name": "Proxmint",
-        "url": "https://cdn.jsdelivr.net/gh/proxmint/free-proxy-list@main/proxies.txt",
+        "name": "MuRongPIG Proxy-Master",
+        "url": "https://cdn.jsdelivr.net/gh/MuRongPIG/Proxy-Master@main/http.txt",
         "format": "txt",
         "protocol": "http",
     },
     {
-        "name": "Gfpcom",
-        "url": "https://raw.githubusercontent.com/gfpcom/free-proxy-list/main/proxies/all/data.txt",
+        # Вместо мёртвого gfpcom/free-proxy-list (репозиторий удалён, отдавал 404)
+        "name": "ErcinDedeoglu",
+        "url": "https://cdn.jsdelivr.net/gh/ErcinDedeoglu/proxies@main/proxies/http.txt",
+        "format": "txt",
+        "protocol": "http",
+    },
+    {
+        "name": "clarketm",
+        "url": "https://cdn.jsdelivr.net/gh/clarketm/proxy-list@master/proxy-list-raw.txt",
         "format": "txt",
         "protocol": "http",
     },
@@ -92,7 +99,17 @@ PROXY_SOURCES = [
 ]
 
 # --- Параметры проверки ---
-CHECK_TIMEOUT = 10              # таймаут на один прокси, сек
+# Таймаут на ОДИН прокси целиком (на все эндпоинты сразу), а не на каждый.
+CHECK_TIMEOUT = 5               # сек
+
+# Прокси медленнее этого отбрасываются сразу, не тратя время на проверку
+# стабильности. Подобрано по практике: вёрстка грузится нормально до ~2 с,
+# дальше начинаются раздражающие «страница подвисла».
+MAX_ACCEPTABLE_LATENCY_MS = 500
+
+# Из-за жёсткого лимита на скорость общий таймаут тоже можно держать
+# небольшим: отвечающий быстро прокси укладывается в доли секунды, а тот,
+# что думает дольше CHECK_TIMEOUT, всё равно не пройдёт по скорости.
 MAX_CONCURRENT_CHECKS = 500     # максимум одновременных проверок
 
 # Проверка идёт по HTTPS: это ключевой фильтр. HTTP-прокси без поддержки
@@ -117,14 +134,19 @@ REQUIRE_HTTPS = True
 STABILITY_CHECKS = 2
 STABILITY_DELAY = 0.3           # пауза между проверками стабильности, сек
 
-# Максимальная задержка, которую вообще показываем в расширении, мс.
-# Всё медленнее — мусор для UI, но не выбрасываем из файла.
-MAX_ACCEPTABLE_LATENCY_MS = 8000
-
 # --- Параметры гео/анонимности ---
 GEO_MAX_CONCURRENT = 10         # ip-api.com: лимит 45 запросов/мин
+
+# Геолокацию всех прокси по умолчанию НЕ делаем.
+# Причина практическая: ip-api.com отдаёт 45 запросов в минуту, поэтому на
+# тысяче прокси геолокация растягивается на 20+ минут и упирается в лимит.
+# Вместо этого страна определяется двумя способами:
+#   * расширение показывает страну сразу после подключения (по реальному
+#     выходному IP — это точнее, чем гео адреса прокси);
+#   * в списке серверов есть кнопка «📍» — узнать страну конкретного
+#     прокси по запросу, без проверки всех разом.
 ANONYMITY_CHECK = True
-GEO_CHECK = True
+GEO_CHECK = False
 # Анонимность проверяем только для тех, что уже прошли HTTPS — это дорого.
 ANONYMITY_LIMIT = 300
 

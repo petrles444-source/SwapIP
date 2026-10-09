@@ -25,6 +25,7 @@ from config import (
     REQUIRE_HTTPS,
     STABILITY_CHECKS,
     STABILITY_DELAY,
+    MAX_ACCEPTABLE_LATENCY_MS,
 )
 
 try:
@@ -128,15 +129,36 @@ async def _check_with_session(session: aiohttp.ClientSession, proxy: str,
 
     first_error: Optional[BaseException] = None
     started = time.perf_counter()
+    deadline = started + timeout
 
-    for url in urls:
-        ok, data, exc = await _fetch_json(session, url, proxy, timeout)
+    for i, url in enumerate(urls):
+        # Бюджет на весь прокси общий, а не на каждый эндпоинт. Иначе три
+        # недоступных адреса дают 3 × 10 = 30 секунд на один прокси, и весь
+        # прогон встаёт колом на медленных адресах.
+        left = deadline - time.perf_counter()
+        if left <= 0.5:
+            break
+        budget = left if i == 0 else max(1.0, left / 2)
+
+        attempt_started = time.perf_counter()
+        ok, data, exc = await _fetch_json(session, url, proxy, budget)
+
         if ok:
             external_ip = _extract_ip(data)
             if not external_ip:
                 first_error = first_error or RuntimeError(FAIL_BAD_PAYLOAD)
                 continue
-            latency = time.perf_counter() - started
+
+            # Задержка ВАЖНО меряется от начала успешной попытки, а не от
+            # начала проверки: иначе быстрый рабочий прокси, до которого
+            # дошли только с третьего эндпоинта, попадёт в список как
+            # «медленный на 30 секунд».
+            latency = time.perf_counter() - attempt_started
+
+            # Медленный прокси отбрасываем сразу и не тратим время на
+            # проверку стабильности: он всё равно не попадёт в список.
+            if latency * 1000 > MAX_ACCEPTABLE_LATENCY_MS:
+                return None
 
             # Стабильность: несколько запросов подряд через один и тот же IP.
             if STABILITY_CHECKS > 1:
@@ -190,8 +212,16 @@ async def check_proxies_batch(
     timeout: int = CHECK_TIMEOUT,
     max_concurrent: int = MAX_CONCURRENT_CHECKS,
     progress_callback=None,
+    result_callback=None,
 ) -> List[Dict]:
-    """Проверяет список прокси с ограничением конкурентности; сортирует по скорости."""
+    """
+    Проверяет список прокси с ограничением конкурентности; сортирует по скорости.
+
+    result_callback(record) вызывается на каждый НАЙДЕННЫЙ прокси. Он нужен,
+    чтобы сохранять результаты на лету: если проверку прервут, уже найденное
+    не потеряется. Сам колбэк обязан быть быстрым — он зовётся из горячего
+    пути под локом, поэтому тяжёлую запись лучше делать пачками внутри него.
+    """
     semaphore = asyncio.Semaphore(max_concurrent)
     results: List[Dict] = []
     checked = 0
@@ -203,6 +233,17 @@ async def check_proxies_batch(
     # поэтому MITM-прокси с самоподписанным сертификатом проходили проверку
     # и доходили до пользователя как «рабочие».
     connector = aiohttp.TCPConnector(limit=max_concurrent)
+
+    # Мёртвый прокси закрывает соединение на своей стороне. На Windows это
+    # штатно вызывает ConnectionResetError внутри служебного колбэка
+    # proactor_events._call_connection_lost, и asyncio печатает для этого
+    # трейсбек — хотя проверить такой прокси мы и так не смогли, то есть
+    # это ожидаемый исход, а не сбой. Молча отсекаем такой шум, иначе он
+    # перемешивается с прогресс-баром и выглядит как падение программы.
+    loop = asyncio.get_running_loop()
+    previous_handler = loop.get_exception_handler()
+    loop.set_exception_handler(_quiet_reset_handler)
+
     async with aiohttp.ClientSession(connector=connector) as session:
 
         async def limited_check(proxy: str):
@@ -214,10 +255,39 @@ async def check_proxies_batch(
                     if result:
                         valid += 1
                         results.append(result)
-                    if progress_callback and checked % 100 == 0:
+                        # Сообщаем о найденном сразу — по нему пишем
+                        # промежуточный файл (см. main.py: Flusher).
+                        if result_callback:
+                            result_callback(result)
+                    # Обновляем прогресс каждые 100 проверок, но в конце
+                    # сообщаем всегда — иначе на небольшом списке (меньше
+                    # 100 адресов) пользователь вообще не увидит от progress.
+                    if progress_callback and (checked % 100 == 0 or checked == total):
                         progress_callback(checked, total, valid)
 
-        await asyncio.gather(*[limited_check(p) for p in proxies], return_exceptions=True)
+        try:
+            await asyncio.gather(*[limited_check(p) for p in proxies], return_exceptions=True)
+        finally:
+            loop.set_exception_handler(previous_handler)
+            # Даём циклу обработать отложенные колбэки connection_lost,
+            # пока наш обработчик ещё установлен.
+            await asyncio.sleep(0.05)
 
     results.sort(key=lambda x: x['latency'])
     return results
+
+
+def _quiet_reset_handler(loop, context):
+    """
+    Обработчик исключений asyncio: глушит обрыв соединения с прокси.
+
+    Всё остальное отдаём стандартному обработчику, чтобы настоящие ошибки
+    не потерялись.
+    """
+    exc = context.get('exception')
+    if isinstance(exc, ConnectionResetError):
+        return
+    message = str(context.get('message', ''))
+    if 'connection lost' in message or 'ConnectionResetError' in message:
+        return
+    loop.default_exception_handler(context)

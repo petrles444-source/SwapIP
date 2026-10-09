@@ -373,7 +373,26 @@ function report(name, ok, detail) {
     ''
   );
 
-  // 10. Встроенный список: файл, который кладёт анализатор в extension/data/.
+  // 10. Гео по запросу: страна определяется по адресу прокси, БЕЗ подключения
+  //     к нему. Проверяем, что действие отвечает и пишет страну в список.
+  await send({
+    action: 'import',
+    data: { proxies: [{ p: 'http://8.8.8.8:8080', l: 120, c: '', n: '', a: 'elite', i: '' }] }
+  });
+  const loc = await send({ action: 'locate', proxy: 'http://8.8.8.8:8080' });
+  let storedGeo = null;
+  for (const e of (store.get('proxies') || [])) {
+    if (e.p === 'http://8.8.8.8:8080' && e.c) storedGeo = e;
+  }
+  report(
+    'locate (страна по запросу, без подключения)',
+    loc.ok && loc.found && loc.found.length === 1 && !!storedGeo,
+    storedGeo
+      ? `${storedGeo.c} ${storedGeo.n}${storedGeo.i ? ' · ' + storedGeo.i : ''}`
+      : (loc.error || 'нет ответа')
+  );
+
+  // 11. Встроенный список: файл, который кладёт анализатор в extension/data/.
   //     Именно он делает «нажал Обновить в chrome://extensions → прокси уже есть».
   const bundlePath = path.join(EXT_DIR, 'data', 'proxies.json');
   if (fs.existsSync(bundlePath)) {

@@ -5,6 +5,7 @@ import asyncio
 import os
 import shutil
 import sys
+import time
 
 from colorama import Fore, Style, init
 
@@ -35,19 +36,74 @@ init(autoreset=True)
 
 
 def progress(checked, total, valid):
+    """Прогресс-бар проверки.
+
+    Показываем долю ПРОВЕРЕННЫХ адресов, но отдельно и выход в процентах
+    от проверенных — иначе строка «43%» читается как «43% рабочих»,
+    хотя на самом деле это 43% пути, а выход может быть меньше процента.
+    """
     percent = checked / total * 100 if total else 0
     filled = int(30 * checked / total) if total else 0
     bar = '█' * filled + '░' * (30 - filled)
-    print(f"\r  [{bar}] {checked}/{total} ({percent:.1f}%) | Рабочих: {valid}", end='', flush=True)
+    yield_pct = valid / checked * 100 if checked else 0
+    print(f"\r  [{bar}] проверено {checked}/{total} ({percent:.1f}%) | "
+          f"рабочих: {valid} ({yield_pct:.2f}% от проверенных)", end='', flush=True)
+
+
+class Flusher:
+    """
+    Периодически дописывает найденные прокси в valid_proxies.json.
+
+    Зачем: полный прогон занимает час+, и если его прервать, всё найденное
+    было бы потеряно — файл писался только в самом конце. Теперь результат
+    сохраняется каждые FLUSH_EVERY находок и раз в FLUSH_SECONDS секунд.
+
+    Запись не тормозит проверку: за прогон файл перезаписывается десятки раз,
+    а не на каждый прокси, и сам merge — это работа со словарём.
+    """
+
+    FLUSH_EVERY = 25       # находок между сохранениями
+    FLUSH_SECONDS = 30.0   # или секунд между сохранениями
+
+    def __init__(self, old: List[dict], quiet: bool = False):
+        self.found: List[dict] = []
+        self.old = old or []
+        self.quiet = quiet
+        self._last = time.monotonic()
+        self.saves = 0
+
+    def __call__(self, record: dict):
+        """Вызывается из checker на каждый найденный прокси."""
+        self.found.append(record)
+        now = time.monotonic()
+        if len(self.found) % self.FLUSH_EVERY == 0 or (now - self._last) >= self.FLUSH_SECONDS:
+            self.flush()
+
+    def flush(self):
+        """Пишет накопленное в базу, не теряя предыдущие записи."""
+        if not self.found:
+            return
+        merged = merge_proxy_records(self.old, self.found, keep_old=True)
+        alive = [p for p in merged if p.get('alive', True)]
+        alive.sort(key=lambda p: p.get('latency', 99))
+        try:
+            save_valid_proxies(merged)
+            self.saves += 1
+            self._last = time.monotonic()
+        except OSError as exc:
+            print(f"\n  [!] Не удалось сохранить промежуточный файл: {exc}")
 
 
 async def enrich(results):
-    """Обогащает результаты гео и анонимностью (и то, и другое — внешние запросы)."""
+    """Обогащает результаты анонимностью и, если включено, гео."""
     if GEO_CHECK:
         print(f"\n{Fore.YELLOW}  Геолокация {len(results)} IP...{Style.RESET_ALL}", end='', flush=True)
         results = await enrich_proxies_with_geo(results)
         flush_geo_cache()
         print(f"{Fore.GREEN} готово{Style.RESET_ALL}")
+    else:
+        print(f"\n{Fore.WHITE}  Геолокация пропущена: страна определится в расширении "
+              f"(после подключения или по кнопке «📍» в списке серверов).{Style.RESET_ALL}")
 
     if ANONYMITY_CHECK and results:
         import aiohttp
@@ -95,14 +151,29 @@ async def run_full_parse():
 
     print(f"\n{Fore.YELLOW}[Фаза 2/4] Проверка {len(scraped)} прокси (HTTPS)...{Style.RESET_ALL}")
     print(f"  {Fore.WHITE}Прокси без поддержки CONNECT и с подменой сертификата отбрасываются.{Style.RESET_ALL}")
-    valid = await check_proxies_batch(list(scraped), progress_callback=progress)
+    print(f"  {Fore.WHITE}Результаты сохраняются на лету — прерывание не отменит уже найденное.{Style.RESET_ALL}")
+
+    # Старая база нужна, чтобы полный прогон её не затирал: всё, что найдено
+    # раньше и не подтвердилось сейчас, сохранится как alive=False.
+    old_base = load_valid_proxies()
+    if old_base:
+        print(f"  {Fore.WHITE}Текущая база: {len(old_base)} записей — будет сохранена и объединена.{Style.RESET_ALL}")
+
+    flusher = Flusher(old_base)
+    valid = await check_proxies_batch(
+        list(scraped),
+        progress_callback=progress,
+        result_callback=flusher,
+    )
     print(f"\n\n{Fore.GREEN}[✓] Рабочих прокси: {len(valid)}{Style.RESET_ALL}")
+    if flusher.saves:
+        print(f"{Fore.GREEN}  Промежуточных сохранений: {flusher.saves}{Style.RESET_ALL}")
 
     print(f"\n{Fore.YELLOW}[Фаза 3/4] Обогащение данными...{Style.RESET_ALL}")
     valid = await enrich(valid)
 
     print(f"\n{Fore.YELLOW}[Фаза 4/4] Сохранение и экспорт...{Style.RESET_ALL}")
-    _merged, alive = persist(valid)
+    _merged, alive = persist(valid, old=old_base)
 
     if alive:
         print(f"{Fore.GREEN}  Лучшая скорость: {alive[0]['latency']*1000:.0f} мс{Style.RESET_ALL}")
@@ -114,6 +185,12 @@ async def run_quick_recheck():
 
     Не перезаписывает файл: результаты сливаются со старыми записями
     без дублирования (см. storage.merge_proxy_records).
+
+    ВАЖНО: эта проверка НЕ ищет новые прокси — она перебирает только те,
+    что уже есть в базе. Поэтому повторные запуски не «прокачивают» список.
+    Чтобы увеличить количество, нужен пункт [1]: он заново обходит источники.
+    Смысл [2] — обновить задержки, вернуть в строй те, кто временно отвалился,
+    и убрать из выдачи те, кто умер окончательно.
     """
     valid = load_valid_proxies()
     if not valid:
@@ -124,13 +201,22 @@ async def run_quick_recheck():
     targets = [p['proxy'] for p in (alive_old or valid)]
     print(f"\n{Fore.CYAN}[*] Перепроверка {len(targets)} прокси...{Style.RESET_ALL}")
     print(f"  {Fore.WHITE}Найденные снова добавятся к прежним записям — дубликатов не будет.{Style.RESET_ALL}")
+    print(f"  {Fore.WHITE}Новых прокси эта проверка не ищет — для этого пункт [1].{Style.RESET_ALL}")
+    print(f"  {Fore.WHITE}Результаты сохраняются на лету.{Style.RESET_ALL}")
 
-    fresh = await check_proxies_batch(targets, progress_callback=progress)
+    flusher = Flusher(valid)
+    fresh = await check_proxies_batch(
+        targets,
+        progress_callback=progress,
+        result_callback=flusher,
+    )
     print(f"\n\n{Fore.GREEN}[✓] Живых: {len(fresh)} из {len(targets)}{Style.RESET_ALL}")
 
     # Гео/анонимность из старых записей подтянутся при слиянии.
     _merged, alive = persist(fresh, old=valid)
     print(f"{Fore.GREEN}  Всего в базе (без дублей): {len(alive)}{Style.RESET_ALL}")
+    if flusher.saves:
+        print(f"{Fore.GREEN}  Промежуточных сохранений: {flusher.saves}{Style.RESET_ALL}")
 
 
 def show_top_proxies():

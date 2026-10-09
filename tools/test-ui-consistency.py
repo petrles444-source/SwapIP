@@ -62,8 +62,18 @@ bg = read('extension/background.js')
 for action in ['getState', 'connect', 'connectTo', 'disconnect', 'toggle',
                'switchCountry', 'refresh', 'checkNow', 'import', 'loadBundled',
                'emergencyReset', 'reconcile', 'cancelConnect', 'getSettings',
-               'setSettings', 'activateLicense']:
+               'setSettings', 'activateLicense', 'locate']:
     check(f'background.js: action «{action}»', f"case '{action}'" in bg)
+
+# Гео по кнопке: функция должна быть, а в popup — кнопка и обработчик
+check('background.js: есть функция lookupGeo', 'async function lookupGeo' in bg)
+check('popup.js: кнопка «📍» в списке серверов', "geo-tag" in js)
+check('popup.js: обработчик locateProxy', 'function locateProxy' in js)
+check('popup.js: клик по строке не срабатывает на кнопке гео',
+      "ev.target.closest('.geo-tag')" in js)
+check('popup.css: стиль .geo-tag', '.geo-tag' in css)
+check('popup.css: состояние загрузки .geo-tag', '.geo-tag.loading' in css)
+check('popup.css: найденная страна .geo-tag.known', '.geo-tag.known' in css)
 
 # каждое PROBE-эндпоинт-хоста должно быть в PAC, иначе зонд пойдёт мимо прокси
 hosts = re.findall(r"url: 'https://([a-z0-9.\-]+)/", bg)

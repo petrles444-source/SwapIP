@@ -8,12 +8,12 @@ venv/
 # Node
 node_modules/
 
-# Данные анализатора: восстанавливаются повторным запуском.
-# В репозитории держим только компактный список для расширения.
+# Результаты работы анализатора: восстанавливаются повторным запуском.
 analyzer/data/raw_proxies.txt
 analyzer/data/geo_cache.json
 analyzer/data/valid_proxies.json
 analyzer/data/top_proxies.json
+analyzer/data/extension_proxies.json
 
 # Свои прокси — не должны попасть в публичный репозиторий
 analyzer/proxies/*

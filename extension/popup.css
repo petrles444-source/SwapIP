@@ -219,6 +219,16 @@ body {
   background: #25252e; color: #9ca3af; text-transform: uppercase; flex-shrink: 0;
 }
 
+/* Кнопка «📍» — узнать страну конкретного прокси */
+.geo-tag {
+  font-size: 13px; cursor: pointer; padding: 2px 5px; border-radius: 6px;
+  opacity: 0.45; flex-shrink: 0; transition: opacity 0.15s, background 0.15s;
+  user-select: none;
+}
+.geo-tag:hover { opacity: 1; background: #25252e; }
+.geo-tag.known { opacity: 1; }
+.geo-tag.loading { animation: pulse 0.8s infinite; pointer-events: none; }
+
 /* --- Список стран --- */
 .country-item {
   display: flex; align-items: center; gap: 10px;

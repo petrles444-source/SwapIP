@@ -263,6 +263,15 @@ function renderServers() {
     const ping = s.l
       ? `<div class="ping-badge ${pingClass(s.l)}">${s.l} мс</div>`
       : '<div class="ping-badge">— мс</div>';
+
+    // Кнопка «📍» — узнать страну именно этого прокси.
+    // Гео делается по адресу прокси, без подключения к нему, поэтому
+    // ответ приходит за ~200 мс и чужие страницы не грузятся.
+    // Клик по строке (кроме кнопки) — подключиться.
+    const geoBtn = s.c
+      ? `<div class="geo-tag known" title="${escapeHtml(country)}">📍</div>`
+      : '<div class="geo-tag" title="Узнать страну этого прокси">📍</div>';
+
     item.innerHTML = `
       <div class="server-flag">${getFlagEmoji(s.c)}</div>
       <div class="server-info">
@@ -270,10 +279,22 @@ function renderServers() {
         <div class="server-meta">${escapeHtml(country)}${s.i ? ' · ' + escapeHtml(s.i) : ''}</div>
       </div>
       <div class="proto-tag">${proto}</div>
+      ${geoBtn}
       ${ping}
     `;
+
+    item.addEventListener('click', (ev) => {
+      if (ev.target.closest('.geo-tag')) return;
+      connectToProxy(s.p);
+    });
     item.title = 'Подключиться к этому серверу';
-    item.addEventListener('click', () => connectToProxy(s.p));
+
+    const geo = item.querySelector('.geo-tag');
+    geo.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      locateProxy(s.p, geo);
+    });
+
     list.appendChild(item);
   }
 
@@ -282,6 +303,28 @@ function renderServers() {
     note.className = 'empty-note';
     note.textContent = 'Нет серверов под этот фильтр.';
     list.appendChild(note);
+  }
+}
+
+/**
+ * Узнаёт страну одного прокси по кнопке «📍».
+ * Гео сохраняется в список, поэтому страна остаётся после перезапуска
+ * и попадает в подсчётку на вкладке «Страны».
+ */
+async function locateProxy(proxyUrl, btn) {
+  btn.classList.add('loading');
+  btn.title = 'Определяем страну…';
+  const resp = await sendMessage({ action: 'locate', proxy: proxyUrl });
+  btn.classList.remove('loading');
+
+  if (resp.ok && resp.found && resp.found.length) {
+    const g = resp.found[0];
+    btn.classList.add('known');
+    btn.title = g.countryName || g.country;
+    await loadState();
+  } else {
+    btn.title = (resp.error || 'не удалось определить') + ' — попробуй ещё раз';
+    showError('Не удалось определить страну: ' + (resp.error || 'нет ответа'));
   }
 }
 
@@ -295,7 +338,10 @@ function renderCountries() {
     note.className = 'empty-note';
     note.innerHTML = state.totalProxies === 0
       ? 'Список пуст. Нажмите ⟳, чтобы загрузить прокси из публичных источников.'
-      : 'В текущем списке нет данных о странах.<br>Они появятся после подключения (замер выхода) или после импорта кураторского списка из анализатора.';
+      : 'Страны появятся сами — их не нужно определять заранее.<br><br>'
+        + '<b>Подключись</b> к любому прокси: страна определится по фактическому выходу.<br>'
+        + 'Или на вкладке «📡 Серверы» нажми <b>📍</b> у нужного прокси.<br><br>'
+        + 'Так быстрее: определять страны для всех сразу долго и обычно не нужно.';
     container.appendChild(note);
     return;
   }

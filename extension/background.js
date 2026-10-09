@@ -568,6 +568,44 @@ async function probeDirect() {
   return probeCurrentProxy(8000).then((r) => (r.ok ? r.ip : null));
 }
 
+// Сервис геокодирования по IP. Используется только по запросу пользователя
+// (кнопка «📍»), а не для всех прокси сразу: у бесплатных сервисов есть лимиты,
+// и прогон по тысяче адресов занимал бы десятки минут.
+const GEO_URLS = ['https://ipwho.is/'];
+
+/**
+ * Определяет страну и провайдера по IP-адресу.
+ * ВАЖНО: адрес — это сам прокси, а не наш выход. Мы НЕ подключаемся к нему,
+ * поэтому чужие страницы не грузятся, слот не занимается и ответ приходит
+ * за ~200 мс вместо секунд ожидания CONNECT.
+ */
+async function lookupGeo(ip, timeoutMs = 6000) {
+  let lastError = 'нет ответа';
+  for (const base of GEO_URLS) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      const resp = await fetch(base + encodeURIComponent(ip), {
+        cache: 'no-store',
+        signal: ctrl.signal
+      });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const data = await resp.json();
+      if (!data || data.success === false) throw new Error('нет данных');
+      return {
+        country: typeof data.country_code === 'string' ? data.country_code.toUpperCase().slice(0, 2) : '',
+        countryName: typeof data.country === 'string' ? data.country.slice(0, 40) : '',
+        isp: String((data.connection && data.connection.isp) || '').slice(0, 30)
+      };
+    } catch (err) {
+      lastError = String((err && err.message) || err);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  throw new Error(lastError);
+}
+
 // ============ СТАТИСТИКА И ВЫБОР КАНДИДАТА ============
 
 async function getStats() {
@@ -1199,6 +1237,53 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           } catch (err) {
             sendResponse({ ok: false, error: err.message });
           }
+          break;
+        }
+
+        // Узнать страну конкретного прокси — по кнопке «📍» в списке серверов.
+        // Гео делается по адресу самого прокси, БЕЗ подключения к нему:
+        // это не занимает прокси-слот и не требует ждать ответа сервера.
+        case 'locate': {
+          const entries = Array.isArray(msg.proxies)
+            ? msg.proxies.slice(0, 50)
+            : (msg.proxy ? [msg.proxy] : []);
+          if (entries.length === 0) {
+            sendResponse({ ok: false, error: 'Не указан прокси' });
+            break;
+          }
+
+          const { [STORAGE_KEYS.PROXIES]: proxies } = await storageGet(STORAGE_KEYS.PROXIES);
+          const list = proxies || [];
+          const found = [];
+          const failed = [];
+
+          for (const url of entries) {
+            const parsed = parseProxyUrl(url);
+            if (!parsed) {
+              failed.push({ p: url, error: 'неверный формат' });
+              continue;
+            }
+            try {
+              const geo = await lookupGeo(parsed.host, 6000);
+              found.push({ p: url, ...geo });
+            } catch (err) {
+              failed.push({ p: url, error: err.message });
+            }
+          }
+
+          // Записываем страну в список — она сохранится и переживёт перезапуск.
+          if (found.length) {
+            const byUrl = new Map(found.map((g) => [g.p, g]));
+            const updated = list.map((e) => {
+              const g = byUrl.get(e.p);
+              if (!g) return e;
+              return { ...e, c: g.country || e.c, n: g.countryName || e.n, i: g.isp || e.i };
+            });
+            await storageSet({ [STORAGE_KEYS.PROXIES]: updated });
+          }
+
+          log(`Гео по запросу: ${found.length} определено, ${failed.length} нет`);
+          sendResponse({ ok: found.length > 0, found, failed, ...(found.length ? {} : { error: 'не удалось определить страну' }) });
           break;
         }
 
