@@ -100,8 +100,13 @@ async def check_proxy(
 ) -> Optional[Dict]:
     """
     Проверяет один прокси. None — не работает (или не годен для браузера).
+
+    Причина отказа кладётся в check_proxy.LAST_REJECT — по ней потом
+    собирается статистика в check_proxies_batch, чтобы прогон показывал,
+    ЧЁ именно отсеило прокси, а не просто «0 найдено».
     """
     protocol = proxy.split('://')[0]
+    check_proxy.LAST_REJECT = 'dead'
 
     # SOCKS требует отдельного коннектора — сессию с session.get(proxy=) нельзя.
     own_session = None
@@ -125,6 +130,12 @@ async def check_proxy(
 async def _check_with_session(session: aiohttp.ClientSession, proxy: str,
                               timeout: int, test_url: str,
                               protocol: str = 'http') -> Optional[Dict]:
+    """Проверяет один прокси. Причину отказа пишет в check_proxy.LAST_REJECT."""
+    urls = [test_url] + [u for u in TEST_URL_FALLBACKS if u != test_url]
+
+    first_error: Optional[BaseException] = None
+    started = time.perf_counter()
+    deadline = started + timeout
     urls = [test_url] + [u for u in TEST_URL_FALLBACKS if u != test_url]
 
     first_error: Optional[BaseException] = None
@@ -146,6 +157,7 @@ async def _check_with_session(session: aiohttp.ClientSession, proxy: str,
         if ok:
             external_ip = _extract_ip(data)
             if not external_ip:
+                check_proxy.LAST_REJECT = 'no_ip'
                 first_error = first_error or RuntimeError(FAIL_BAD_PAYLOAD)
                 continue
 
@@ -155,9 +167,12 @@ async def _check_with_session(session: aiohttp.ClientSession, proxy: str,
             # «медленный на 30 секунд».
             latency = time.perf_counter() - attempt_started
 
-            # Медленный прокси отбрасываем сразу и не тратим время на
-            # проверку стабильности: он всё равно не попадёт в список.
-            if latency * 1000 > MAX_ACCEPTABLE_LATENCY_MS:
+            # Отсев по скорости. Опциональный: если порог не задан
+            # (None или 0) — пропускаем всё, что ответило.
+            # Осторожно с величиной: в задержку входит TLS-хендшейк,
+            # поэтому слишком низкий порог убьёт весь список.
+            if MAX_ACCEPTABLE_LATENCY_MS and latency * 1000 > MAX_ACCEPTABLE_LATENCY_MS:
+                check_proxy.LAST_REJECT = 'too_slow'
                 return None
 
             # Стабильность: несколько запросов подряд через один и тот же IP.
@@ -177,6 +192,7 @@ async def _check_with_session(session: aiohttp.ClientSession, proxy: str,
                         first_error = RuntimeError(FAIL_UNSTABLE)
                         break
                 if not stable:
+                    check_proxy.LAST_REJECT = 'unstable'
                     return None
 
             return {
@@ -227,6 +243,10 @@ async def check_proxies_batch(
     checked = 0
     valid = 0
     total = len(proxies)
+
+    # Счётчики причин отказа. Без них непонятно, ПОЧЕМУ список пустой:
+    # то ли пулы мёртвые, то ли настройки слишком жёсткие.
+    stats = {'too_slow': 0, 'unstable': 0, 'no_ip': 0, 'dead': 0}
     lock = asyncio.Lock()
 
     # ВАЖНО: ssl=True (по умолчанию). Раньше здесь стояло ssl=False, и именно
@@ -255,10 +275,13 @@ async def check_proxies_batch(
                     if result:
                         valid += 1
                         results.append(result)
-                        # Сообщаем о найденном сразу — по нему пишем
-                        # промежуточный файл (см. main.py: Flusher).
-                        if result_callback:
-                            result_callback(result)
+                    else:
+                        reason = getattr(check_proxy, 'LAST_REJECT', 'dead')
+                        stats[reason] = stats.get(reason, 0) + 1
+                    # Сообщаем о найденном сразу — по нему пишем
+                    # промежуточный файл (см. main.py: Flusher).
+                    if result and result_callback:
+                        result_callback(result)
                     # Обновляем прогресс каждые 100 проверок, но в конце
                     # сообщаем всегда — иначе на небольшом списке (меньше
                     # 100 адресов) пользователь вообще не увидит от progress.
@@ -274,6 +297,12 @@ async def check_proxies_batch(
             await asyncio.sleep(0.05)
 
     results.sort(key=lambda x: x['latency'])
+    # Отчёт по причинам отказа: без него непонятно, почему список пустой.
+    check_proxies_batch.last_stats = {
+        **stats,
+        'checked': checked,
+        'accepted': valid,
+    }
     return results
 
 

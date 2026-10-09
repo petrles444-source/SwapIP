@@ -50,6 +50,39 @@ def progress(checked, total, valid):
           f"рабочих: {valid} ({yield_pct:.2f}% от проверенных)", end='', flush=True)
 
 
+# Человеческие названия причин отказа
+REJECT_LABELS = {
+    'dead': 'не отвечают (таймаут / отказ)',
+    'too_slow': 'отсеяны по скорости',
+    'unstable': 'нестабильны (плавает выходной IP)',
+    'no_ip': 'ответ без IP',
+    'mitm': 'подменяют сертификат',
+}
+
+
+def print_reject_stats(stats):
+    """
+    Показывает, ПОЧЕМУ список оказался таким. Без этого «0 найдено»
+    невозможно отличить от мёртвых пулов от слишком жёстких настроек.
+    """
+    if not stats:
+        return
+    checked = stats.get('checked', 0)
+    accepted = stats.get('accepted', 0)
+    print(f"\n  Разбор отказов (проверено {checked}, принято {accepted}):")
+    for key, label in REJECT_LABELS.items():
+        cnt = stats.get(key, 0)
+        if cnt:
+            print(f"    {label:<38} {cnt:>7}")
+
+    slow = stats.get('too_slow', 0)
+    if slow and accepted == 0:
+        print()
+        print(f"  {Fore.RED}[!] Ничего не нашлось, и {slow} прокси отсеяно по скорости.{Style.RESET_ALL}")
+        print(f"      Похоже, порог MAX_ACCEPTABLE_LATENCY_MS в analyzer/config.py")
+        print(f"      слишком жёсткий. Поставь None, чтобы отсеивать только по таймауту.")
+
+
 class Flusher:
     """
     Периодически дописывает найденные прокси в valid_proxies.json.
@@ -166,6 +199,7 @@ async def run_full_parse():
         result_callback=flusher,
     )
     print(f"\n\n{Fore.GREEN}[✓] Рабочих прокси: {len(valid)}{Style.RESET_ALL}")
+    print_reject_stats(getattr(check_proxies_batch, 'last_stats', None))
     if flusher.saves:
         print(f"{Fore.GREEN}  Промежуточных сохранений: {flusher.saves}{Style.RESET_ALL}")
 
@@ -211,6 +245,7 @@ async def run_quick_recheck():
         result_callback=flusher,
     )
     print(f"\n\n{Fore.GREEN}[✓] Живых: {len(fresh)} из {len(targets)}{Style.RESET_ALL}")
+    print_reject_stats(getattr(check_proxies_batch, 'last_stats', None))
 
     # Гео/анонимность из старых записей подтянутся при слиянии.
     _merged, alive = persist(fresh, old=valid)
