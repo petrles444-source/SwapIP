@@ -1,0 +1,6 @@
+{
+  "updated": "",
+  "count": 0,
+  "note": "Файл создаётся Python-анализатором (analyzer/storage.py → export_to_extension_bundle). Запустите: cd analyzer && python main.py → пункт [1] Полный парсинг. После этого нажмите ⟳ Обновить в chrome://extensions. Пока файл пуст, расширение возьмёт прокси из публичных источников (или по URL из настроек).",
+  "proxies": []
+}

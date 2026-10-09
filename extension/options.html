@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <link rel="stylesheet" href="popup.css">
+  <style>
+    body { width: 420px; }
+    .field { margin-bottom: 16px; }
+    .field label { display: block; font-size: 12px; color: #888; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .field input, .field select {
+      width: 100%;
+      padding: 10px 12px;
+      background: #15151a;
+      border: 1px solid #2a2a35;
+      border-radius: 8px;
+      color: #fff;
+      font-size: 13px;
+      font-family: inherit;
+    }
+    .field input:focus, .field select:focus { outline: none; border-color: #3b82f6; }
+    .hint { font-size: 11px; color: #666; margin-top: 6px; line-height: 1.5; }
+    .hint a { color: #60a5fa; }
+    .save-btn {
+      width: 100%;
+      padding: 12px;
+      background: linear-gradient(135deg, #3b82f6, #2563eb);
+      border: none;
+      border-radius: 10px;
+      color: #fff;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      margin-top: 4px;
+    }
+    .save-btn:hover { box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3); }
+    .status-line { font-size: 12px; margin-top: 10px; min-height: 16px; }
+    .status-line.ok { color: #22c55e; }
+    .status-line.err { color: #f87171; }
+    .divider { border: none; border-top: 1px solid #1f1f28; margin: 18px 0; }
+    .pro-badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 6px;
+      background: linear-gradient(135deg, #f59e0b, #d97706);
+      color: #fff;
+      font-size: 10px;
+      font-weight: 700;
+      margin-left: 8px;
+      vertical-align: middle;
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <div class="logo">⚙️</div>
+      <h1>Настройки SwapIP</h1>
+    </header>
+
+    <div class="field">
+      <label for="listUrl">URL списка прокси</label>
+      <input type="url" id="listUrl" placeholder="https://raw.githubusercontent.com/USER/my-proxy-list/main/extension_proxies.json">
+      <div class="hint">
+        Ссылка на JSON, который готовит Python-анализатор (формат <code>{proxies:[{p,l,c,n,a,i,https}]}</code>).
+        Оставьте пустым — расширение возьмёт встроенный список, а если его нет — публичные источники.
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="mode">Режим загрузки</label>
+      <select id="mode">
+        <option value="auto">Авто — URL, затем встроенный, затем публичные</option>
+        <option value="bundled">Только встроенный список (пакет расширения)</option>
+        <option value="remote">Только кураторский список по URL</option>
+        <option value="direct">Только публичные источники</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label for="timeout">Таймаут проверки прокси, мс</label>
+      <input type="number" id="timeout" min="3000" max="20000" step="500" value="10000">
+    </div>
+
+    <div class="field">
+      <label><input type="checkbox" id="failSafe" checked> Fail-safe: не ронять сеть</label>
+      <div class="hint">
+        Прокси указывается как <code>PROXY …; DIRECT</code>. Если сервер умрёт, браузер
+        продолжит работать напрямую. Обратная сторона: если прокси умер, вы можете
+        некоторое время быть на своём реальном IP — расширение это заметит и переподключится.
+        Выключите, если вам важнее никогда не показывать реальный адрес.
+      </div>
+    </div>
+
+    <div class="field">
+      <label><input type="checkbox" id="allowHttpOnly"> Разрешать прокси без поддержки HTTPS</label>
+      <div class="hint">
+        Выключено — и правильно. Прокси без CONNECT не умеет открывать HTTPS-сайты
+        (Chrome: <code>ERR_CONNECTION_CLOSED</code>). Включайте только для отладки.
+      </div>
+    </div>
+
+    <button class="save-btn" id="saveBtn">Сохранить настройки</button>
+    <div class="status-line" id="saveStatus"></div>
+
+    <hr class="divider">
+
+    <div class="field">
+      <label>Диагностика</label>
+      <div class="hint">
+        Если сеть не работает — нажмите «Аварийный сброс». Он снимет настройки прокси
+        в самом браузере, даже если состояние расширения потерялось (именно такое состояние
+        и приводило к ситуации «сеть легла до переустановки расширения»).
+      </div>
+      <button class="save-btn emergency" id="resetBtn" style="background:linear-gradient(135deg,#ef4444,#dc2626)">
+        🆘 Аварийный сброс прокси
+      </button>
+      <button class="save-btn" id="reconcileBtn" style="background:linear-gradient(135deg,#f59e0b,#d97706)">
+        🔍 Проверить состояние прокси
+      </button>
+      <div class="status-line" id="diagStatus"></div>
+    </div>
+
+    <hr class="divider">
+
+    <div class="field">
+      <label for="licenseKey">Лицензионный ключ PRO <span class="pro-badge">PRO</span></label>
+      <input type="text" id="licenseKey" placeholder="SWIP-XXXX-XXXX-XXXX" autocomplete="off">
+      <div class="hint" id="proStatus"></div>
+    </div>
+    <button class="save-btn" id="activateBtn">Активировать PRO</button>
+    <div class="status-line" id="licenseStatus"></div>
+
+    <hr class="divider">
+
+    <div class="hint">
+      Все настройки хранятся локально в браузере. Расширение не собирает и не отправляет
+      историю просмотров. Свободное место для вашей политики конфиденциальности при публикации.
+    </div>
+  </div>
+
+  <script src="options.js"></script>
+</body>
+</html>

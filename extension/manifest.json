@@ -1,0 +1,38 @@
+{
+  "manifest_version": 3,
+  "name": "SwapIP — смена IP и локации",
+  "short_name": "SwapIP",
+  "version": "1.1.0",
+  "description": "Меняет IP-адрес и локацию браузера через проверенные прокси: выбор страны, авто-подбор сервера, проверка до включения, защита от WebRTC-утечек и от потери сети.",
+  "author": "SwapIP",
+  "permissions": [
+    "proxy",
+    "storage",
+    "alarms",
+    "privacy"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "SwapIP — смена IP",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": false
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

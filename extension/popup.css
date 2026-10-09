@@ -1,0 +1,259 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  width: 360px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: #0f0f12;
+  color: #fff;
+}
+
+.app { padding: 14px; }
+
+/* --- Шапка --- */
+.header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.header h1 { font-size: 16px; font-weight: 600; flex: 1; }
+.logo { font-size: 20px; }
+
+.gear-btn {
+  background: none; border: none; color: #888; font-size: 16px;
+  cursor: pointer; padding: 4px 8px; border-radius: 6px;
+}
+.gear-btn:hover { background: #1a1a20; color: #fff; }
+
+/* --- Вкладки --- */
+.tabs { display: flex; gap: 4px; margin-bottom: 12px; background: #15151a; border-radius: 10px; padding: 4px; }
+
+.tab {
+  flex: 1; padding: 8px 4px; border: none; border-radius: 8px;
+  background: none; color: #888; font-size: 12px; font-weight: 600;
+  cursor: pointer; transition: background 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+
+.tab:hover { color: #ccc; }
+.tab.active { background: #2a2a35; color: #fff; }
+
+.tab-page { display: none; }
+.tab-page.active { display: block; }
+
+/* --- Карточка статуса --- */
+.status-card {
+  background: #1a1a20; border-radius: 12px; padding: 12px;
+  display: flex; align-items: center; gap: 12px; margin-bottom: 10px;
+  border: 1px solid #2a2a35;
+}
+
+.status-indicator {
+  width: 12px; height: 12px; border-radius: 50%; background: #666;
+  box-shadow: 0 0 0 4px rgba(102, 102, 102, 0.15); flex-shrink: 0;
+}
+
+.status-indicator.active {
+  background: #22c55e; box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.15);
+  animation: pulse 2s infinite;
+}
+
+.status-indicator.connecting {
+  background: #eab308; box-shadow: 0 0 0 4px rgba(234, 179, 8, 0.15);
+  animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.15); }
+  50% { box-shadow: 0 0 0 8px rgba(34, 197, 94, 0.05); }
+}
+
+.status-text { flex: 1; min-width: 0; }
+.status-title { font-size: 14px; font-weight: 600; }
+.status-sub {
+  font-size: 12px; color: #888; margin-top: 2px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+.check-btn {
+  background: #25252e; border: none; color: #aaa; font-size: 14px;
+  cursor: pointer; padding: 6px 9px; border-radius: 8px; flex-shrink: 0;
+}
+.check-btn:hover { background: #2f2f3a; color: #fff; }
+.check-btn:disabled { opacity: 0.4; cursor: default; }
+
+/* --- Карточка локации --- */
+.location-card {
+  background: linear-gradient(135deg, #16233a, #101828);
+  border: 1px solid #24354f;
+  border-radius: 12px; padding: 12px;
+  display: flex; align-items: center; gap: 12px; margin-bottom: 10px;
+}
+
+.location-flag { font-size: 28px; flex-shrink: 0; }
+.location-info { flex: 1; min-width: 0; }
+
+.location-label {
+  font-size: 10px; color: #6b7a90; text-transform: uppercase; letter-spacing: 0.5px;
+}
+
+.location-value { font-size: 14px; font-weight: 600; margin-top: 2px; }
+.location-value.active { color: #22c55e; }
+
+.location-meta {
+  font-size: 11px; color: #888; margin-top: 2px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* --- Кнопка подключения --- */
+.connect-btn {
+  width: 100%; padding: 14px;
+  background: linear-gradient(135deg, #3b82f6, #2563eb);
+  border: none; border-radius: 12px; color: #fff;
+  font-size: 14px; font-weight: 600; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+
+.connect-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3); }
+.connect-btn:active { transform: translateY(0); }
+.connect-btn.active { background: linear-gradient(135deg, #ef4444, #dc2626); }
+.connect-btn:disabled { opacity: 0.6; cursor: wait; transform: none; }
+
+/* Во время подбора кнопка означает отмену — подчёркиваем это цветом. */
+.connect-btn.connecting {
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.15);
+}
+.connect-btn.connecting:hover { box-shadow: 0 0 0 5px rgba(245, 158, 11, 0.25); }
+
+.btn-icon { flex-shrink: 0; }
+
+/* --- Прогресс подбора прокси --- */
+.connect-progress { margin-top: 10px; }
+
+.progress-track {
+  height: 4px; border-radius: 3px; background: #1f1f28; overflow: hidden;
+}
+
+.progress-bar {
+  height: 100%; width: 10%; border-radius: 3px;
+  background: linear-gradient(90deg, #3b82f6, #eab308);
+  transition: width 0.3s ease;
+}
+
+.progress-text {
+  font-size: 11px; color: #888; margin-top: 5px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* --- Аварийный сброс --- */
+.emergency { margin-top: 10px; }
+
+.emergency-btn {
+  width: 100%; padding: 9px;
+  background: #1a1a20; border: 1px solid #3a1f22; border-radius: 10px;
+  color: #f87171; font-size: 12px; font-weight: 600; cursor: pointer;
+  font-family: inherit; transition: background 0.15s;
+}
+.emergency-btn:hover { background: #2a1418; }
+
+.emergency-hint {
+  font-size: 11px; color: #22c55e; margin-top: 6px; text-align: center;
+  min-height: 14px;
+}
+
+.wide-btn {
+  flex: 1; padding: 7px 8px; background: #15151a; border: 1px solid #2a2a35;
+  border-radius: 8px; color: #ccc; font-size: 11px; font-family: inherit; cursor: pointer;
+}
+.wide-btn:hover { background: #25252e; color: #fff; }
+
+/* --- Фильтры --- */
+.filter-row { display: flex; gap: 6px; margin-bottom: 8px; }
+
+.filter-row select {
+  flex: 1; padding: 7px 8px; background: #15151a; border: 1px solid #2a2a35;
+  border-radius: 8px; color: #ccc; font-size: 11px; font-family: inherit;
+}
+.filter-row select:focus { outline: none; border-color: #3b82f6; }
+
+.refresh-btn {
+  background: none; border: none; color: #888; font-size: 16px;
+  cursor: pointer; padding: 4px 8px; border-radius: 6px;
+}
+.refresh-btn.big { background: #1a1a20; padding: 6px 10px; }
+.refresh-btn:hover { background: #25252e; color: #fff; }
+.refresh-btn.spinning { animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.hint-line { font-size: 11px; color: #666; margin-bottom: 8px; }
+
+/* --- Список серверов --- */
+.server-list, .countries {
+  max-height: 300px; overflow-y: auto; border-radius: 10px; background: #15151a;
+}
+
+.server-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px; cursor: pointer;
+  border-bottom: 1px solid #1f1f28; transition: background 0.1s;
+}
+
+.server-item:last-child { border-bottom: none; }
+.server-item:hover { background: #1f1f28; }
+.server-item.selected { background: #1e3a5f; }
+
+.server-flag { font-size: 17px; flex-shrink: 0; }
+.server-info { flex: 1; min-width: 0; }
+.server-addr { font-size: 12px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.server-meta { font-size: 10px; color: #888; margin-top: 1px; }
+
+.ping-badge {
+  font-size: 11px; font-weight: 600; padding: 3px 8px;
+  border-radius: 6px; background: #1e3a5f; color: #60a5fa; flex-shrink: 0;
+  min-width: 62px; text-align: center;
+}
+
+.ping-badge.fast { background: #14532d; color: #22c55e; }
+.ping-badge.mid { background: #3a2e14; color: #eab308; }
+.ping-badge.slow { background: #3a1414; color: #f87171; }
+
+.proto-tag {
+  font-size: 9px; font-weight: 700; padding: 2px 5px; border-radius: 4px;
+  background: #25252e; color: #9ca3af; text-transform: uppercase; flex-shrink: 0;
+}
+
+/* --- Список стран --- */
+.country-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 12px; cursor: pointer;
+  border-bottom: 1px solid #1f1f28; transition: background 0.1s;
+}
+
+.country-item:last-child { border-bottom: none; }
+.country-item:hover { background: #1f1f28; }
+.country-item.selected { background: #1e3a5f; }
+
+.country-flag { font-size: 20px; }
+.country-info { flex: 1; }
+.country-name { font-size: 13px; font-weight: 500; }
+.country-meta { font-size: 11px; color: #888; margin-top: 2px; }
+
+.country-latency {
+  font-size: 11px; font-weight: 600; padding: 3px 8px;
+  border-radius: 6px; background: #1e3a5f; color: #60a5fa; flex-shrink: 0;
+}
+.country-latency.fast { background: #14532d; color: #22c55e; }
+
+.empty-note {
+  padding: 18px 12px; text-align: center; color: #888; font-size: 12px; line-height: 1.6;
+}
+
+/* --- Подвал --- */
+.footer {
+  border-top: 1px solid #1f1f28; padding-top: 10px; margin-top: 12px;
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: 11px; color: #888; gap: 8px;
+}
+
+.import-btn {
+  cursor: pointer; padding: 6px 10px; border-radius: 6px;
+  background: #1a1a20; transition: background 0.1s; flex-shrink: 0;
+}
+.import-btn:hover { background: #25252e; }
